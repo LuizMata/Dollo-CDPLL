@@ -1,28 +1,3 @@
-/*
-
-MIT License 
-Copyright (c) 2023 Junyan Dai, Tobias Rubel, Yunheng Han, Erin Molloy
-
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
-
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
-
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-SOFTWARE.
-
-*/
-
 #include "constraint_large_dollo_parsimony.h"
 #include<cstdio>
 #include<iostream>
@@ -39,14 +14,18 @@ const std::string help =
 "Dollo-CDP is a program that solves the large Dollo parsimony problem for binary\n"
 "characters (missing values allowed) within a clade-constrained version of tree space.\n\n" 
 "USAGE for Large Dollo problem:\n"
-"./dollo-cdp -i <input characters file> -g <outgroup name> -o <output file>\n\n"
+"./dollo-cdp -i <input characters file> -l <character BED file> -d <character linking threshold> -g <outgroup name> -o <output file>\n\n"
 "USAGE for small Dollo parsimony problem:\n"
-"./dollo-cdp -i <input characters file> -q <input species tree>\n\n"
+"./dollo-cdp -i <input characters file> -l <character BED file> -d <character linking threshold> -q <input species tree>\n\n"
 "OPTIONS:\n"
 "[-h|--help]\n"
 "        Prints this help message.\n"
 "(-i|--input) <input characters file>\n"
 "        Name of file containing input characters in nexus format (required)\n"
+"(-l|--location) <character BED file>\n"
+"	 Name of the file containing BED entries for each character\n"
+"(-d|--distance) <character linking threshold>\n"
+"	 Maximum distance between characters for loss linking\n"
 "(-x|-g|--outgroup) <outgroup name>\n"
 "        Comma separated list of outgroup taxa used to root solution space\n"
 "[(-t|--trees) <input trees file>]\n"
@@ -85,6 +64,62 @@ void print_clades_set(clades_set cs, vector<string> &labels) {
   }
 }
 
+std::tuple<int,int,int,std::string> split(std::string &line) {
+  std::stringstream stream(line);
+  std::string chr;
+  std::string begin;
+  std::string end;
+  std::string name; 
+
+
+  std::getline(stream,chr,'\t');
+  std::getline(stream,begin,'\t');
+  std::getline(stream,end,'\t');
+  std::getline(stream,name,'\t');
+
+  int num_chr = 0;
+  int num_begin = stoi(begin);
+  int num_end = stoi(end);
+  if(chr == "X"){
+    num_chr = 23;
+  }
+  else if(chr == "Y"){
+    num_chr = 24;
+  }
+  else{
+    num_chr = stoi(chr);
+  }
+
+  return make_tuple(num_chr,num_begin,num_end,name);
+}
+
+
+std::vector<std::tuple<int,int,int,std::string>> get_loc_vector(std::string &filename, int num_chars) {
+	
+  std::vector<std::tuple<int,int,int,std::string>> loc(num_chars);
+  
+  std::ifstream file(filename);
+  
+  if(!file) {
+    std::cout << "Big problem" << std::endl;
+    return {}; 
+  }
+
+  std::string line;
+  int line_num = 0;
+
+  while(std::getline(file,line)){
+	  
+    std::tuple<int,int,int,std::string> parts = split(line);
+    loc[line_num] = (make_tuple(std::get<0>(parts),std::get<1>(parts),std::get<2>(parts),std::get<3>(parts)));
+  
+    line_num++;
+  }
+  
+  return loc;
+}
+
+
 int main(int argc, char** argv) {
   std::cout << "Dollo-CDP version 1.0.1\nCOMMAND: ";
   for (int j = 0; j < argc; j ++) 
@@ -97,19 +132,23 @@ int main(int argc, char** argv) {
   string filename1 = "";
   string filename2 = "";
   string filename3 = "";
+  string filename_bed = "";
   string input_tree = "";
   string outname;
   bool large_Dollo = true;
   bool write_bptrees_and_exit = false;
   bool user_defined_search_space = false;
+  unsigned int d = 0;
 
   for (int i = 0; i < argc; i++) {
     string opt(argv[i]);
     if (opt == "-h" || opt == "--help") {std::cout << help; return 0;}
     if (opt == "-i" || opt == "--input" && i < argc - 1) filename1 = argv[++ i];
-    if (opt == "-q" && i < argc - 1) {large_Dollo = false; input_tree = argv[++ i];}
     if (opt == "-k") {write_bptrees_and_exit = true;} 
     if (opt == "-t" || opt == "--trees" && i < argc - 1) {user_defined_search_space = true; filename2 = argv[++ i];}
+    if (opt == "-l" || opt == "--locations" && i < argc - 1) filename_bed = argv[++ i];
+    if (opt == "-d" || opt == "--distance" && i < argc - 1) d = std::stoi(argv[++ i]);
+    if (opt == "-q" && i < argc - 1) {large_Dollo = false; input_tree = argv[++ i];}
     if (opt == "-x" || opt == "--outgroup" || opt == "-g" && i < argc - 1) outname = argv[++ i];
     if (opt == "-o" || opt == "--output"&& i < argc - 1) filename3 = argv[++ i];
   }
@@ -127,6 +166,16 @@ int main(int argc, char** argv) {
   }
   if (filename1[0] == '-') {
      std::cout << "Warning: May not have correctly specified file name for -i option!\n\n";
+  }
+  if (filename_bed == "" && large_Dollo) {
+     std::cout << "Need to provide character BED file!\n\n";
+     std::cout << help;
+     return 1;
+  }
+  if (d == 0 && large_Dollo) {
+     std::cout << "Need to provide a valid character linking distance!\n\n";
+     std::cout << help;
+     return 1;
   }
   if (outname == "" && large_Dollo) {
     std::cout << "Need to provide outgroup name!\n\n";
@@ -153,10 +202,15 @@ int main(int argc, char** argv) {
   uint8_t** C = read_characters(filename1, k, label2index, labels, record);
   
   auto read_characters_end = std::chrono::high_resolution_clock::now();
-  
+ 
+  std::vector<std::tuple<int,int,int,std::string>> loc = get_loc_vector(filename_bed, k);
+
   if (!large_Dollo) {
     
-    unsigned int score = Dollo_parsimony_score(C, k, input_tree,label2index);
+    //add new parameters here
+    //loc table
+    //d threshold
+    unsigned int score = Dollo_parsimony_score(C, k, input_tree, label2index, loc, d);
     std::ofstream fout(filename3);
     fout << score << endl;
     std::cout << "The Dollo parsimony score: " << score << std::endl;
@@ -167,6 +221,8 @@ int main(int argc, char** argv) {
   }
    
   vector<string> outgroup = get_outgroup(outname);
+
+
 
   if (!user_defined_search_space && large_Dollo) {
     phylotools::BinaryCharacterMatrix S = phylotools::BinaryCharacterMatrix();
@@ -183,7 +239,7 @@ int main(int argc, char** argv) {
     std::ofstream generated_clades_file(filename2);
     
     if (!generated_clades_file.is_open()) {
-      std::cerr << "Error: could not create generated_caldes_file " << std::endl;
+      std::cerr << "Error: could not create generated_clades_file " << std::endl;
       return 1;
     }
     std::string format;
@@ -221,10 +277,12 @@ int main(int argc, char** argv) {
   auto duration_of_search_space =  std::chrono::duration_cast<std::chrono::milliseconds>(search_space_end - read_characters_end);
   std::cout << "execution time of computing search space: " << duration_of_search_space.count() << "ms" << std::endl;
   
+ 
   std::ofstream fout(filename3);
-  Tree T = constraint_large_dollo_parsimony(X, record, C, k, labels,label2index);
-  cout << T.newick() << endl;
-  fout << T.newick() << endl;
+  Tree reso = constraint_large_dollo_parsimony(X, record, C, k, labels, label2index, loc, d,filename3);
+  cout << reso.newick() << endl;
+  fout << reso.newick() << endl;
+
   auto end = std::chrono::high_resolution_clock::now();
   auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end - start);
   std::cout << "execution time: " << duration.count() << "ms" << std::endl;

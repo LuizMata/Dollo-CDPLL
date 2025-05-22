@@ -1,0 +1,15 @@
+#NEXUS
+
+begin data;
+	Dimensions: ntax=6, nchar=6;
+	Format datatype=standard missing=? gap=-;
+	Matrix
+A 111011
+B 000011
+C 111000
+D 000100
+E 000100
+O 000000
+	;
+End;
+

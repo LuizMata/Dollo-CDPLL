@@ -30,6 +30,7 @@ SOFTWARE.
 #include<algorithm>
 #include<queue>
 #include<unordered_set>
+#include<fstream>
 #include <cstdint>
 
 typedef Bipartition clades;
@@ -65,13 +66,13 @@ typedef boost::unordered_map<pp, clades, TupleHash, TupleEqual> child_record;
 const unsigned int INF = 0x7f7f7f7f;
 
 
-std::tuple<unsigned int,std::string> bottom_up(clades_set X, character_record &record, character_matrix C, opt &f, states_map &St, state_record &st_l, state_record &st_r, child_record &g, unsigned int k, clades &S, std::vector<std::string> &labels, boost::unordered_map<std::string, unsigned int> &label2index) {
+std::tuple<unsigned int,std::string, int> bottom_up(clades_set X, character_record &record, character_matrix C, opt &f, states_map &St, state_record &st_l, state_record &st_r, child_record &g, unsigned int k, clades &S, std::vector<std::string> &labels, boost::unordered_map<std::string, unsigned int> &label2index, std::vector<std::tuple<int,int,int,std::string>>& loc, unsigned int d) {
   auto start = std::chrono::high_resolution_clock::now();
   std::vector<Bipartition> X_vec(X.begin(), X.end());
   sort(X_vec.begin(), X_vec.end(), [](clades &s1, clades &s2) {
     return s1.count() < s2.count();
   });
-
+  std::unordered_map<std::string,int> cnv_classes;
   std::cout << std::endl;
   std::cout << "size of X: " << X_vec.size() << std::endl;
   size_t subp_num = 1;
@@ -121,6 +122,7 @@ std::tuple<unsigned int,std::string> bottom_up(clades_set X, character_record &r
 	    }
 	    
 	    unsigned int tmp = INF;
+	    unsigned int linked_tmp = 0;
 	    clades h;
 	    std::string i, j;
 	    unsigned int v;
@@ -130,14 +132,23 @@ std::tuple<unsigned int,std::string> bottom_up(clades_set X, character_record &r
 	      
 	      for (const auto &s2 : St[a_comp_str]) {
 		
-		unsigned int score_tmp = score(t, s1, s2, k);
+		//add here vector param.
+
 		
-		v = f[pp(a_str,s1)] + f[pp(a_comp_str,s2)] + score_tmp;
+		//for(const auto& k : loc){
+		//	std::cout << k.first << std::endl;
+		//}
+		
+		//pass distance here
+		std::pair<unsigned int, unsigned int> score_tmp = score(t, s1, s2, k, d, loc,cnv_classes);
+		
+		v = f[pp(a_str,s1)] + f[pp(a_comp_str,s2)] + score_tmp.first;
 		
 		
 		if (tmp > v) {
 		  
 		  tmp = v;
+		  linked_tmp = score_tmp.second;
 		  h = a;
 		  i = s1;
 		  j = s2;
@@ -155,7 +166,6 @@ std::tuple<unsigned int,std::string> bottom_up(clades_set X, character_record &r
 
 	      f[pp(u_str,t)] = tmp;
 	      g[pp(u_str,t)] = h;
-	        
 	      st_l[pp(u_str,t)] = i;
 	      st_r[pp(u_str,t)] = j;
 	    }
@@ -177,10 +187,18 @@ std::tuple<unsigned int,std::string> bottom_up(clades_set X, character_record &r
   }
   std::cout << std::endl;
   std::cout << "The Dollo parsimony score: " << res << std::endl;
+  int cnv_count = 0;
+  std::unordered_set<int> unique;
+  for(const auto& p : cnv_classes){
+  	unique.insert(p.second);
+  }
+  int cnvs = unique.size();
+  std::cout << "The total number of linked losses is: " << unique.size() << std::endl;
   auto end = std::chrono::high_resolution_clock::now();
   auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end - start);
   std::cout << "execution time for DP part: " << duration.count() << "ms" << std::endl;
-  return std::tuple<int, std::string>{res, res_state};
+  //write all_linked to CSV
+  return std::tuple<int, std::string, int>{res, res_state, cnvs};
  
 }
 
@@ -237,7 +255,7 @@ Node* back_solve(opt &f, state_record &st_l, state_record &st_r, child_record &g
   
 }
 
-Tree constraint_large_dollo_parsimony(clades_set X, character_record record, character_matrix C, int k, std::vector<std::string> &labels, boost::unordered_map<std::string, unsigned int> &label2index) {
+Tree constraint_large_dollo_parsimony(clades_set X, character_record record, character_matrix C, int k, std::vector<std::string> &labels, boost::unordered_map<std::string, unsigned int> &label2index, std::vector<std::tuple<int,int,int,std::string>>& loc, unsigned int d, std::string filename3) {
   opt f;
   state_record st_l;
   state_record st_r;
@@ -253,7 +271,7 @@ Tree constraint_large_dollo_parsimony(clades_set X, character_record record, cha
   Bipartition S(tbs);
 
   
-  std::tuple<int, std::string> vp = bottom_up(X, record, C, f, St, st_l, st_r, g, k, S, labels, label2index);
+  std::tuple<int, std::string, int> vp = bottom_up(X, record, C, f, St, st_l, st_r, g, k, S, labels, label2index, loc, d);
 
   for (int i = 0; i < k; i++) {
     delete[] C[i];
@@ -261,7 +279,10 @@ Tree constraint_large_dollo_parsimony(clades_set X, character_record record, cha
   delete[] C;
   
   std::string start_state = std::get<1>(vp);
-  
+ 
+  std::string filenamecnv = filename3 + ".cnv";
+  std::ofstream test(filenamecnv);
+  test << "dollocdpLL," << std::get<2>(vp) << std::endl;
   Node* r = back_solve(f, st_l, st_r, g, pp{S.to_string(), start_state}, labels);
   return Tree(r);
 }

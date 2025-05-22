@@ -1,27 +1,3 @@
-/*
-
-MIT License 
-Copyright (c) 2023 Junyan Dai, Tobias Rubel, Yunheng Han, Erin Molloy
-
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
-
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
-
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-SOFTWARE.
-
-*/
 
 #include "tree-lib.hpp"
 #include "read_characters.h"
@@ -53,7 +29,7 @@ std::string get_newick(std::string input_tree) {
 
 
 
-unsigned int one_step(int i, uint8_t** C, unsigned int k, boost::unordered_map<std::string, unsigned int> &label2index, Node* r, size_t max_id) {
+unsigned int one_step(int i, uint8_t** C, unsigned int k, boost::unordered_map<std::string, unsigned int> &label2index, Node* r, size_t max_id, std::vector<int> &losses) {
   unsigned int res = 0;
   
   int *below = new int[max_id];
@@ -179,10 +155,15 @@ unsigned int one_step(int i, uint8_t** C, unsigned int k, boost::unordered_map<s
     }
   }
   //std::cout << "computed all character" << std::endl;
+
   for (auto j = Traverse::PostOrder(r); j != j.end(); j++) {
     if ((*j)->ID == r->ID) continue;
-    if (character[(*j)->ID] == 0 && character[((*j)->get_parent())->ID] == 1) res++;
+    if (character[(*j)->ID] == 0 && character[((*j)->get_parent())->ID] == 1){
+      losses[(*j)->ID] = 1;
+      res++;
+    } 
   }
+
   delete[] character;
   delete[] above;
   delete[] below;
@@ -190,20 +171,55 @@ unsigned int one_step(int i, uint8_t** C, unsigned int k, boost::unordered_map<s
 }
 
 
-unsigned int Dollo_parsimony_score(uint8_t** C, unsigned int k,std::string input_tree, boost::unordered_map<std::string, unsigned int> &label2index) {
+unsigned int Dollo_parsimony_score(uint8_t** C, unsigned int k,std::string input_tree, boost::unordered_map<std::string, unsigned int> &label2index, std::vector<std::tuple<int,int,int,std::string>>& loc, unsigned int d) {
   unsigned int tot = 0;
   std::string newick_str = get_newick(input_tree);
   Tree *T = new Tree(newick_str);
-  
   size_t max_id = (T->get_root())->get_max_id();
+  std::vector<std::vector<int>> losses(k, std::vector<int>(max_id,0));
+  
   //std::cout << "K: " << k << std::endl;
   for (int i = 0; i < k; i++) {
-    tot += one_step(i, C, k, label2index, T->get_root(), max_id);
+    tot += one_step(i, C, k, label2index, T->get_root(), max_id, losses[i]);
     //if (i % 100 == 0) std::cout << "Finished scoring " << i + 1<< " characters" << std::endl;
     std::cout << "\rComputed Score " << i + 1 << " Characters";
     std::cout.flush();
   }
+
+  //for(int i = 0; i < k; i++){
+  //  for(int j = 0; j < max_id; j++){
+  //    std::cout << losses[i][j] << ",";
+  //  }
+  //  std::cout << "\n";
+  //}
+  
   std::cout << std::endl;
+  int prev = -1;
+  int loc_loss = 0;
+  int tot_loss = 0;
+  int chr = -1;
+  for(int i = 0; i < max_id; i++){
+      prev = -1;
+      chr = -1;
+      loc_loss = 0;
+      for(int j = 0; j < k; j++){
+      if(losses[j][i] == 1){
+	tot_loss++;
+	if(std::get<0>(loc[j]) == chr){
+	  if(prev == j-1 && (std::get<1>(loc[j]) - std::get<2>(loc[j-1])) < d){
+	    loc_loss++;
+	  }
+	}
+	prev = j;	
+      }
+      if(std::get<0>(loc[j]) != chr){
+	tot_loss -= loc_loss;
+	loc_loss = 0;
+	chr = std::get<0>(loc[j]);
+      }
+    }
+  }
+
   delete T;
 
   for (int i = 0; i < k; i++) {
@@ -211,5 +227,18 @@ unsigned int Dollo_parsimony_score(uint8_t** C, unsigned int k,std::string input
   }
   delete[] C;
   
-  return tot;
+  return tot_loss;
 }
+
+   //   if(std::get<0>(loc[i]) == chr){
+   //     if(prev == i-1 && (std::get<1>(loc[i]) - std::get<2>(loc[i-1])) < d){
+ //	  res_local++;	
+//	}
+  //    }
+    //  prev = i;
+
+  //  if(std::get<0>(loc[i] != chr)){
+   //   res -= res_local;	
+ //     res_local = 0;
+ //     chr = std::get<0>(loc[i]);
+ //   }

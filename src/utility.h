@@ -23,6 +23,7 @@ SOFTWARE.
 
 */
 
+#include<utility>
 #include "bipartition.hpp"
 #include<string>
 #include<vector>
@@ -34,19 +35,75 @@ SOFTWARE.
 #include "small_dollo_parsimony.h"
 #include<cstdint>
 
-unsigned int score(std::string s1, std::string s2, std::string s3, int k) {
-  int R = 0;
+//return tuple here
+std::pair<unsigned int,unsigned int> score(std::string s1, std::string s2, std::string s3, int k, unsigned int d, std::vector<std::tuple<int,int,int,std::string>>& loc, std::unordered_map<std::string,int>& cnv_classes) {
+  //std::get<0>(loc[i]) for chr
+  //std::get<1>(loc[i]) for begin
+  //std::get<2>(loc[i]) for end
+  int n_linked = 0;
+  int l_loss = 0;
+  int l_local = 0;
+  int r_loss = 0;
+  int r_local = 0;
+  int prev = -1;
+  int chr = -1;
+  int current_class = 1;
+  
   for (int i = 0; i < k; i++) {
-    if (s1[i] == '1' && s2[i] == '0')
-      R++;
-    if (s1[i] == '1' && s3[i] == '0')
-      R++;
-  }
-  return R;
+    if (s1[i] == '1' && s2[i] == '0') {
+      
+      l_loss++;
+      //automatically checks i>0
+      if(std::get<0>(loc[i]) == chr) { 
+	if(prev == i-1 && (std::get<1>(loc[i]) - std::get<2>(loc[i-1])) < d) {
+      	  l_local++;
+	  n_linked++;
+	  std::string cl = std::get<3>(loc[i]);
+	  if(cnv_classes.find(cl) == cnv_classes.end()){
+	  	cnv_classes[cl] = current_class;
+	  }
+	}
+      }
 
+      prev = i;
+    }
+    if (s1[i] == '1' && s3[i] == '0') {
+     
+      r_loss++;
+      //automatically checks i>0
+      if(std::get<0>(loc[i]) == chr) {
+	if(prev == i-1 && (std::get<1>(loc[i]) - std::get<2>(loc[i-1])) < d){
+	  r_local++;
+	  n_linked++;
+	  std::string cl = std::get<3>(loc[i]);
+	  if(cnv_classes.find(cl) == cnv_classes.end()){
+	  	cnv_classes[cl] = current_class;
+	  }
+	}
+      }
+
+      prev = i;
+    }
+    if(std::get<0>(loc[i]) != chr){
+      current_class++;
+      l_loss -= l_local;
+      l_local = 0;
+      r_loss -= r_local;
+      r_local = 0;
+      chr = std::get<0>(loc[i]);
+    }
+
+  }
+
+  unsigned int loss = l_loss + r_loss;
+  if(n_linked > 0){
+  	return std::make_pair(loss,n_linked);
+  }
+  else{
+  	return std::make_pair(loss,0);
+  }
 }
 
-// If there is some taxon h
 bool get_state_aux(Bipartition A, int i, uint8_t** C) {
   
   for (int j = 0; j < A.size(); j++) {
